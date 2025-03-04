@@ -1,0 +1,175 @@
+Index: proto/cfg/pt_234.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/proto/cfg/pt_234.php b/proto/cfg/pt_234.php
+--- a/proto/cfg/pt_234.php	(revision b64841a98dda1c783d3a9a9d4646f1bdcc58cdc9)
++++ b/proto/cfg/pt_234.php	(revision dbe951817655a27931b2c16cb7da9a62b1185020)
+@@ -1801,6 +1801,14 @@
+             "SC" => [              
+                 ['name' => 'activity_id', 'type' => 'int32', 'desc' => '活动唯一ID'],         
+             ]
+-        ],  
++        ],
++         23498 => [
++              'desc' => '通知',
++              "CS" => [
++              ],
++              "SC" => [
++                 ['name' => 'is_show', 'type' => 'uint8', 'desc' => '是否显示（0：否，1：是）'],
++             ]
++         ],
+ 	]
+ ];
+Index: server/include/pt/all.hrl
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/server/include/pt/all.hrl b/server/include/pt/all.hrl
+--- a/server/include/pt/all.hrl	(revision 33a95411b933d9511b2abd19ca1f8ccdc2440ff9)
++++ b/server/include/pt/all.hrl	(revision 124af77eade13bf7aea53357ca2f47aa5343c23a)
+@@ -929,6 +929,7 @@
+ -define(PT_23495, 23495). %% 钓鱼任务活动面板
+ -define(PT_23496, 23496). %% 领取钓鱼任务奖励
+ -define(PT_23497, 23497). %% 领取钓鱼任务达成红点
++-define(PT_23498, 23498). %% 通知
+ -define(PT_23500, 23500). %% 神魔试炼主页面
+ -define(PT_23501, 23501). %% 挑战
+ -define(PT_23502, 23502). %% 领取奖励
+Index: server/src/mod/turning_guide/turning_guide_lib.erl
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/server/src/mod/turning_guide/turning_guide_lib.erl b/server/src/mod/turning_guide/turning_guide_lib.erl
+--- a/server/src/mod/turning_guide/turning_guide_lib.erl	(revision 33a95411b933d9511b2abd19ca1f8ccdc2440ff9)
++++ b/server/src/mod/turning_guide/turning_guide_lib.erl	(revision 61b649cfd957f9ebc37117bdb509143c4f6bb912)
+@@ -36,7 +36,7 @@
+     , async_update_turning/1
+     , update_data/2
+     , update_data/1
+-    , patch_recycle/1]).
++    , patch_recycle/1, push_phone_state/1]).
+ 
+ login(Player, _) ->
+     do_login(Player).
+@@ -148,6 +148,29 @@
+         true -> check_cond(T, Player);
+         _ -> false
+     end;
++check_cond([{reg_day, Day} | T], Player) ->
++    #player{reg_time = RegTime} = Player,
++    NowSec = misc_time:unixtime(),
++    RegDay = misc_time:day_diff_eight_reset(RegTime, NowSec) + 1,
++    ?IF_TRUE(RegDay >= Day, check_cond(T, Player), false);
++check_cond([{ios, _Type} | T], Player) ->
++    #player{os = DeviceType} = Player,
++    ?IF_TRUE(misc:to_atom(DeviceType) =:= ios, false, check_cond(T, Player));
++check_cond([{android, _Type} | T], Player) ->
++    #player{os = DeviceType} = Player,
++    ?IF_TRUE(misc:to_atom(DeviceType) =:= android, false, check_cond(T, Player));
++check_cond([{ohos, _Type} | T], Player) ->
++    #player{os = DeviceType} = Player,
++    ?IF_TRUE(misc:to_atom(DeviceType) =:= ohos, false, check_cond(T, Player));
++check_cond([{windows, _Type} | T], Player) ->
++    #player{os = DeviceType} = Player,
++    ?IF_TRUE(misc:to_atom(DeviceType) =:= windows, false, check_cond(T, Player));
++check_cond([{mac, _Type} | T], Player) ->
++    #player{os = DeviceType} = Player,
++    ?IF_TRUE(misc:to_atom(DeviceType) =:= mac, false, check_cond(T, Player));
++check_cond([{devtools, _Type} | T], Player) ->
++    #player{os = DeviceType} = Player,
++    ?IF_TRUE(misc:to_atom(DeviceType) =:= devtools, false, check_cond(T, Player));
+ check_cond([_ | _], _Player) ->
+     false.
+ 
+@@ -244,9 +267,22 @@
+     NewPlayer = welfare_gift_lib:set_map(Player, Map#{is_turning := ?TRUE}),
+     turning_end_server:update_turning_gift_time(PlayerId),
+ %%    Sec = turning_end_server:get_turning_end_time(PlayerId),?IF_TRUE(Sec > 0, 0, 1)
+-    player_send:send(?PT_23490, {1}),
++    player_send:send(?PT_23490, {?turning_guide_id, 1}),
+     {ok, NewPlayer}.
+ 
++%% 手机开启通知
++push_phone_state(Player) ->
++    CurState =
++        case mnesia_util:read(?tb_vip_window, #vip_window.true_type, 4) of
++            {ok, [#vip_window{cond_list = CondList} | _]} ->
++                IsTrue = check_cond(CondList, Player),
++                ?IF_TRUE(IsTrue, ?TRUE, ?FALSE);
++            _ -> ?FALSE
++        end,
++    player_send:send(?PT_23498, {CurState}),
++    {ok}.
++
++
+ 
+ %% 补丁修复
+ patch_recycle(Player) ->
+Index: server/src/pt/make/pt_234.erl
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/server/src/pt/make/pt_234.erl b/server/src/pt/make/pt_234.erl
+--- a/server/src/pt/make/pt_234.erl	(revision 33a95411b933d9511b2abd19ca1f8ccdc2440ff9)
++++ b/server/src/pt/make/pt_234.erl	(revision 124af77eade13bf7aea53357ca2f47aa5343c23a)
+@@ -297,6 +297,8 @@
+     {ok, {P0_activity_id, P0_id}};
+ read(?PT_23497, _B0) -> 
+     {ok, {}};
++read(?PT_23498, _B0) -> 
++    {ok, {}};
+ read(Cmd, _) ->
+     {error, {read, Cmd}}.
+ 
+@@ -1374,6 +1376,10 @@
+     D_a_t_a = <<
+         P0_activity_id:32/signed-little>>,
+     {ok, <<(byte_size(D_a_t_a)+2):32/little, 23497:16/little, D_a_t_a/binary>>};
++write(?PT_23498, {P0_is_show}) -> 
++    D_a_t_a = <<
++        P0_is_show:8/little>>,
++    {ok, <<(byte_size(D_a_t_a)+2):32/little, 23498:16/little, D_a_t_a/binary>>};
+ write(Cmd, _) ->
+     {error, {write, Cmd}}.
+ 
+@@ -3182,7 +3188,15 @@
+ %%             "SC" => [              
+ %%                 ['name' => 'activity_id', 'type' => 'int32', 'desc' => '活动唯一ID'],         
+ %%             ]
+-%%         ],  
++%%         ],
++%%          23498 => [
++%%               'desc' => '通知',
++%%               "CS" => [
++%%               ],
++%%               "SC" => [
++%%                  ['name' => 'is_show', 'type' => 'uint8', 'desc' => '是否显示（0：否，1：是）'],
++%%              ]
++%%          ],
+ %% 	]
+ %% ];
+ 
+Index: server/src/mod/activity/activity_rpc.erl
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/server/src/mod/activity/activity_rpc.erl b/server/src/mod/activity/activity_rpc.erl
+--- a/server/src/mod/activity/activity_rpc.erl	(revision 124af77eade13bf7aea53357ca2f47aa5343c23a)
++++ b/server/src/mod/activity/activity_rpc.erl	(revision e422c1064a50214adda549b060528dd37b7fb0f9)
+@@ -581,6 +581,10 @@
+     end;
+ %% ............................. 限时垂钓活动 锦囊抽奖相关活动 ...............................
+ 
++%% ............................. 手机通知开启 ...............................
++handle(?PT_23498, {}, Player) ->
++    turning_guide_lib:push_phone_state(Player);
++
+ %% ............................. 神魔试炼 ...............................
+ %% 请求主页面
+ handle(?PT_23500, {Uid}, Player) ->
